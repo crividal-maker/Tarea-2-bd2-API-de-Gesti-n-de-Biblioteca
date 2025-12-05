@@ -1,0 +1,28 @@
+"""Data Transfer Objects for Review endpoints."""
+
+from advanced_alchemy.extensions.litestar import SQLAlchemyDTO, SQLAlchemyDTOConfig
+
+from app.models import Review
+
+
+class ReviewReadDTO(SQLAlchemyDTO[Review]):
+    """DTO for reading review data."""
+
+    config = SQLAlchemyDTOConfig()
+
+
+class ReviewCreateDTO(SQLAlchemyDTO[Review]):
+    """DTO for creating reviews."""
+
+    config = SQLAlchemyDTOConfig(
+        exclude={"id", "created_at", "updated_at", "user", "book", "review_date"},
+    )
+
+
+class ReviewUpdateDTO(SQLAlchemyDTO[Review]):
+    """DTO for updating reviews with partial data."""
+
+    config = SQLAlchemyDTOConfig(
+        exclude={"id", "created_at", "updated_at", "user", "book", "review_date"},
+        partial=True,
+    )

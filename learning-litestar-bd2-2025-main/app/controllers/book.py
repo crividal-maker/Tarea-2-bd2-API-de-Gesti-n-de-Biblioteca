@@ -1,0 +1,183 @@
+"""Controller for Book endpoints."""
+
+from typing import Annotated, Sequence
+
+from advanced_alchemy.exceptions import DuplicateKeyError, NotFoundError
+from advanced_alchemy.filters import LimitOffset
+from litestar import Controller, delete, get, patch, post
+from litestar.di import Provide
+from litestar.dto import DTOData
+from litestar.exceptions import HTTPException
+from litestar.params import Parameter
+
+from app.controllers import duplicate_error_handler, not_found_error_handler
+from app.dtos.book import BookCreateDTO, BookReadDTO, BookUpdateDTO
+from app.models import Book, BookStats
+from app.repositories.book import BookRepository, provide_book_repo
+
+
+class BookController(Controller):
+    """Controller for book management operations."""
+
+    path = "/books"
+    tags = ["books"]
+    return_dto = BookReadDTO
+    dependencies = {"books_repo": Provide(provide_book_repo)}
+    exception_handlers = {
+        NotFoundError: not_found_error_handler,
+        DuplicateKeyError: duplicate_error_handler,
+    }
+
+    @get("/")
+    async def list_books(self, books_repo: BookRepository) -> Sequence[Book]:
+        """Get all books."""
+        return books_repo.list()
+
+    @get("/{id:int}")
+    async def get_book(self, id: int, books_repo: BookRepository) -> Book:
+        """Get a book by ID."""
+        return books_repo.get(id)
+
+    @post("/", dto=BookCreateDTO)
+    async def create_book(
+        self,
+        data: DTOData[Book],
+        books_repo: BookRepository,
+    ) -> Book:
+        """Create a new book."""
+        book_data = data.as_builtins()
+        
+        # Validar stock >= 0
+        if book_data.get("stock", 1) < 0:
+            raise HTTPException(
+                detail="El stock no puede ser negativo",
+                status_code=400,
+            )
+        
+        return books_repo.add(data.create_instance())
+
+    @patch("/{id:int}", dto=BookUpdateDTO)
+    async def update_book(
+        self,
+        id: int,
+        data: DTOData[Book],
+        books_repo: BookRepository,
+    ) -> Book:
+        """Update a book by ID."""
+        book_data = data.as_builtins()
+        
+        # Validar que stock no sea negativo si se está actualizando
+        if "stock" in book_data and book_data["stock"] < 0:
+            raise HTTPException(
+                detail="El stock no puede ser negativo",
+                status_code=400,
+            )
+        
+        book, _ = books_repo.get_and_update(match_fields="id", id=id, **book_data)
+        return book
+
+    @delete("/{id:int}")
+    async def delete_book(self, id: int, books_repo: BookRepository) -> None:
+        """Delete a book by ID."""
+        books_repo.delete(id)
+
+    @get("/search/")
+    async def search_book_by_title(
+        self,
+        title: str,
+        books_repo: BookRepository,
+    ) -> Sequence[Book]:
+        """Search books by title."""
+        return books_repo.list(Book.title.ilike(f"%{title}%"))
+
+    @get("/filter")
+    async def filter_books_by_year(
+        self,
+        year_from: Annotated[int, Parameter(query="from")],
+        to: int,
+        books_repo: BookRepository,
+    ) -> Sequence[Book]:
+        """Filter books by published year."""
+        return books_repo.list(Book.published_year.between(year_from, to))
+
+    @get("/recent")
+    async def get_recent_books(
+        self,
+        limit: Annotated[int, Parameter(query="limit", default=10, ge=1, le=50)],
+        books_repo: BookRepository,
+    ) -> Sequence[Book]:
+        """Get most recent books."""
+        return books_repo.list(
+            LimitOffset(offset=0, limit=limit),
+            order_by=Book.created_at.desc(),
+        )
+
+    @get("/available")
+    async def get_available_books(self, books_repo: BookRepository) -> Sequence[Book]:
+        """Get books with stock > 0."""
+        return books_repo.get_available_books()
+
+    @get("/category/{category_id:int}")
+    async def get_books_by_category(
+        self,
+        category_id: int,
+        books_repo: BookRepository,
+    ) -> Sequence[Book]:
+        """Get books by category."""
+        return books_repo.find_by_category(category_id)
+
+    @get("/most-reviewed")
+    async def get_most_reviewed_books(
+        self,
+        limit: Annotated[int, Parameter(query="limit", default=10, ge=1, le=50)],
+        books_repo: BookRepository,
+    ) -> Sequence[Book]:
+        """Get most reviewed books."""
+        return books_repo.get_most_reviewed_books(limit)
+
+    @patch("/{book_id:int}/stock")
+    async def update_book_stock(
+        self,
+        book_id: int,
+        quantity: Annotated[int, Parameter(query="quantity")],
+        books_repo: BookRepository,
+    ) -> Book:
+        """Update book stock."""
+        return books_repo.update_stock(book_id, quantity)
+
+    @get("/author/search")
+    async def search_books_by_author(
+        self,
+        author: Annotated[str, Parameter(query="author")],
+        books_repo: BookRepository,
+    ) -> Sequence[Book]:
+        """Search books by author name."""
+        return books_repo.search_by_author(author)
+
+    @get("/stats")
+    async def get_book_stats(
+        self,
+        books_repo: BookRepository,
+    ) -> BookStats:
+        """Get statistics about books."""
+        total_books = books_repo.count()
+        if total_books == 0:
+            return BookStats(
+                total_books=0,
+                average_pages=0,
+                oldest_publication_year=None,
+                newest_publication_year=None,
+            )
+
+        books = books_repo.list()
+
+        average_pages = sum(book.pages for book in books) / total_books
+        oldest_year = min(book.published_year for book in books)
+        newest_year = max(book.published_year for book in books)
+
+        return BookStats(
+            total_books=total_books,
+            average_pages=average_pages,
+            oldest_publication_year=oldest_year,
+            newest_publication_year=newest_year,
+        )
