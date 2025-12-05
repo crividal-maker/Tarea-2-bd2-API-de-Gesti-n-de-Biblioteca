@@ -138,7 +138,7 @@ Una vez iniciado el servidor, accede a:
 - http://localhost:8000/schema
 
 Para usar los endpoints protegidos:
-1. Haz login en `/auth/login` con user1/secret123
+1. Haz login en `/auth/login` con Cris/Cris2006.
 2. Copia el token de la respuesta
 3. Click en "Authorize"
-4. Pega el token y autoriza
+4. Pega el token(id=6) y autoriza
